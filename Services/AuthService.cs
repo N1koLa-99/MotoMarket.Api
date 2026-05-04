@@ -1,34 +1,54 @@
-﻿using System.Linq;
-using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Options;
 using MotoMarket.Api.Infrastructure;
 using MotoMarket.Api.Models.Entities;
 using MotoMarket.Api.Models.Requests;
 using MotoMarket.Api.Models.Responses;
 using MotoMarket.Api.Repositories.Interfaces;
 using MotoMarket.Api.Services.Interfaces;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace MotoMarket.Api.Services;
 
 public class AuthService : IAuthService
 {
+    private const string PurposeEmailConfirmation = "EMAIL_CONFIRMATION";
+    private const string PurposePasswordReset = "PASSWORD_RESET";
+
     private readonly IAuthRepository _authRepository;
     private readonly IPasswordService _passwordService;
     private readonly IJwtTokenService _jwtTokenService;
+    private readonly IAccountCodeRepository _accountCodeRepository;
+    private readonly IEmailSender _emailSender;
+
     private readonly JwtOptions _jwtOptions;
+    private readonly AccountCodeOptions _accountCodeOptions;
+
+    private string? _lastRefreshTokenPlain;
 
     public AuthService(
         IAuthRepository authRepository,
         IPasswordService passwordService,
         IJwtTokenService jwtTokenService,
-        IOptions<JwtOptions> jwtOptions)
+        IOptions<JwtOptions> jwtOptions,
+        IAccountCodeRepository accountCodeRepository,
+        IEmailSender emailSender,
+        IOptions<AccountCodeOptions> accountCodeOptions)
     {
         _authRepository = authRepository;
         _passwordService = passwordService;
         _jwtTokenService = jwtTokenService;
         _jwtOptions = jwtOptions.Value;
+        _accountCodeRepository = accountCodeRepository;
+        _emailSender = emailSender;
+        _accountCodeOptions = accountCodeOptions.Value;
     }
 
-    public async Task<AuthResponse> RegisterPrivateAsync(RegisterPrivateRequest request, string? ipAddress, string? userAgent)
+    public async Task<RegisterStartResponse> RegisterPrivateAsync(
+        RegisterPrivateRequest request,
+        string? ipAddress,
+        string? userAgent)
     {
         if (!request.AcceptedPrivacyPolicy)
             throw new InvalidOperationException("Трябва да приемеш Политиката за поверителност, за да създадеш профил.");
@@ -55,19 +75,33 @@ public class AuthService : IAuthService
             CityId = request.CityId,
             AcceptedPrivacyPolicy = true,
             PrivacyPolicyAcceptedAtUtc = DateTime.UtcNow,
-            IsActive = true
+            IsActive = true,
+            EmailConfirmed = false,
+            EmailConfirmedAtUtc = null
         };
 
         user.PasswordHash = _passwordService.HashPassword(user, request.Password);
 
         var userId = await _authRepository.CreatePrivateUserAsync(user);
+
         var createdUser = await _authRepository.GetUserByIdAsync(userId)
             ?? throw new InvalidOperationException("Грешка при създаване на потребителя.");
 
-        return await BuildAuthResponseAsync(createdUser, ipAddress, userAgent);
+        await SendAccountCodeAsync(createdUser, PurposeEmailConfirmation, ipAddress);
+
+        return new RegisterStartResponse
+        {
+            Success = true,
+            RequiresEmailVerification = true,
+            Email = createdUser.Email,
+            Message = "Профилът е създаден. Изпратихме код за потвърждение на имейла."
+        };
     }
 
-    public async Task<AuthResponse> RegisterCompanyAsync(RegisterCompanyRequest request, string? ipAddress, string? userAgent)
+    public async Task<RegisterStartResponse> RegisterCompanyAsync(
+        RegisterCompanyRequest request,
+        string? ipAddress,
+        string? userAgent)
     {
         if (!request.AcceptedPrivacyPolicy)
             throw new InvalidOperationException("Трябва да приемеш Политиката за поверителност, за да създадеш профил.");
@@ -100,16 +134,27 @@ public class AuthService : IAuthService
             LogoUrl = string.IsNullOrWhiteSpace(request.LogoUrl) ? null : request.LogoUrl.Trim(),
             AcceptedPrivacyPolicy = true,
             PrivacyPolicyAcceptedAtUtc = DateTime.UtcNow,
-            IsActive = true
+            IsActive = true,
+            EmailConfirmed = false,
+            EmailConfirmedAtUtc = null
         };
 
         user.PasswordHash = _passwordService.HashPassword(user, request.Password);
 
         var userId = await _authRepository.CreateCompanyUserAsync(user);
+
         var createdUser = await _authRepository.GetUserByIdAsync(userId)
             ?? throw new InvalidOperationException("Грешка при създаване на фирмения акаунт.");
 
-        return await BuildAuthResponseAsync(createdUser, ipAddress, userAgent);
+        await SendAccountCodeAsync(createdUser, PurposeEmailConfirmation, ipAddress);
+
+        return new RegisterStartResponse
+        {
+            Success = true,
+            RequiresEmailVerification = true,
+            Email = createdUser.Email,
+            Message = "Фирменият профил е създаден. Изпратихме код за потвърждение на имейла."
+        };
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, string? ipAddress, string? userAgent)
@@ -123,6 +168,9 @@ public class AuthService : IAuthService
         var isValidPassword = _passwordService.VerifyPassword(user, user.PasswordHash, request.Password);
         if (!isValidPassword)
             throw new UnauthorizedAccessException("Невалиден имейл или парола.");
+
+        if (!user.EmailConfirmed)
+            throw new UnauthorizedAccessException("Имейлът не е потвърден. Провери пощата си и въведи кода за потвърждение.");
 
         return await BuildAuthResponseAsync(user, ipAddress, userAgent);
     }
@@ -141,6 +189,9 @@ public class AuthService : IAuthService
         var user = await _authRepository.GetUserByIdAsync(existingToken.UserId);
         if (user is null || !user.IsActive)
             throw new UnauthorizedAccessException("Потребителят не е активен.");
+
+        if (!user.EmailConfirmed)
+            throw new UnauthorizedAccessException("Имейлът не е потвърден.");
 
         var newRefreshTokenPlain = _jwtTokenService.CreateRefreshToken();
         var newRefreshTokenHash = _jwtTokenService.HashToken(newRefreshTokenPlain);
@@ -181,6 +232,75 @@ public class AuthService : IAuthService
             return;
 
         await _authRepository.RevokeRefreshTokenAsync(existingToken.Id, null, ipAddress);
+    }
+
+    public async Task VerifyEmailAsync(VerifyEmailRequest request)
+    {
+        var email = NormalizeEmail(request.Email);
+
+        var user = await _authRepository.GetUserByEmailAsync(email)
+            ?? throw new InvalidOperationException("Невалиден имейл или код.");
+
+        if (!user.IsActive)
+            throw new InvalidOperationException("Невалиден имейл или код.");
+
+        if (user.EmailConfirmed)
+            return;
+
+        await ValidateAndConsumeCodeAsync(user.Id, PurposeEmailConfirmation, request.Code);
+
+        await _accountCodeRepository.ConfirmUserEmailAsync(user.Id);
+    }
+
+    public async Task ResendEmailVerificationAsync(
+        ResendEmailVerificationRequest request,
+        string? ipAddress)
+    {
+        var email = NormalizeEmail(request.Email);
+
+        var user = await _authRepository.GetUserByEmailAsync(email);
+
+        if (user is null || !user.IsActive || user.EmailConfirmed)
+            return;
+
+        await SendAccountCodeAsync(user, PurposeEmailConfirmation, ipAddress);
+    }
+
+    public async Task ForgotPasswordAsync(ForgotPasswordRequest request, string? ipAddress)
+    {
+        var email = NormalizeEmail(request.Email);
+
+        var user = await _authRepository.GetUserByEmailAsync(email);
+
+        if (user is null || !user.IsActive || !user.EmailConfirmed)
+            return;
+
+        await SendAccountCodeAsync(user, PurposePasswordReset, ipAddress);
+    }
+
+    public async Task ResetPasswordAsync(ResetPasswordRequest request, string? ipAddress)
+    {
+        if (request.NewPassword != request.ConfirmNewPassword)
+            throw new InvalidOperationException("Новата парола и потвърждението не съвпадат.");
+
+        var email = NormalizeEmail(request.Email);
+
+        var user = await _authRepository.GetUserByEmailAsync(email)
+            ?? throw new InvalidOperationException("Невалиден имейл или код.");
+
+        if (!user.IsActive)
+            throw new InvalidOperationException("Невалиден имейл или код.");
+
+        if (!user.EmailConfirmed)
+            throw new InvalidOperationException("Имейлът не е потвърден.");
+
+        await ValidateAndConsumeCodeAsync(user.Id, PurposePasswordReset, request.Code);
+
+        var newHash = _passwordService.HashPassword(user, request.NewPassword);
+
+        await _authRepository.UpdateUserPasswordHashAsync(user.Id, newHash);
+
+        await _authRepository.RevokeAllActiveRefreshTokensForUserAsync(user.Id, ipAddress);
     }
 
     public async Task<UserProfileResponse> UpdatePrivateProfileAsync(long userId, UpdatePrivateProfileRequest request)
@@ -306,13 +426,121 @@ public class AuthService : IAuthService
         };
     }
 
-    private string? _lastRefreshTokenPlain;
-
     public string? ConsumeLatestRefreshToken()
     {
         var value = _lastRefreshTokenPlain;
         _lastRefreshTokenPlain = null;
         return value;
+    }
+
+    private async Task SendAccountCodeAsync(User user, string purpose, string? ipAddress)
+    {
+        if (string.IsNullOrWhiteSpace(_accountCodeOptions.SecretKey))
+            throw new InvalidOperationException("AccountCodes:SecretKey липсва.");
+
+        await _accountCodeRepository.ConsumeActiveCodesAsync(user.Id, purpose);
+
+        var code = CreateSixDigitCode();
+        var codeHash = HashAccountCode(user.Id, purpose, code);
+
+        var minutes = purpose == PurposePasswordReset
+            ? _accountCodeOptions.PasswordResetCodeMinutes
+            : _accountCodeOptions.EmailVerificationCodeMinutes;
+
+        await _accountCodeRepository.InsertAsync(new UserAccountCode
+        {
+            UserId = user.Id,
+            Purpose = purpose,
+            CodeHash = codeHash,
+            ExpiresAtUtc = DateTime.UtcNow.AddMinutes(minutes),
+            CreatedByIp = ipAddress
+        });
+
+        if (purpose == PurposeEmailConfirmation)
+        {
+            await _emailSender.SendAsync(
+                user.Email,
+                "Код за потвърждение на имейл - Moto Zona",
+                $"Твоят код за потвърждение е: {code}\n\nКодът е валиден {minutes} минути.",
+                $@"
+<p>Здравей,</p>
+<p>Твоят код за потвърждение е:</p>
+<h2 style=""letter-spacing:3px;"">{code}</h2>
+<p>Кодът е валиден {minutes} минути.</p>
+<p>Moto Zona</p>");
+        }
+        else if (purpose == PurposePasswordReset)
+        {
+            await _emailSender.SendAsync(
+                user.Email,
+                "Код за смяна на парола - Moto Zona",
+                $"Твоят код за смяна на парола е: {code}\n\nКодът е валиден {minutes} минути.",
+                $@"
+<p>Здравей,</p>
+<p>Твоят код за смяна на парола е:</p>
+<h2 style=""letter-spacing:3px;"">{code}</h2>
+<p>Кодът е валиден {minutes} минути.</p>
+<p>Ако не си заявил смяна на парола, игнорирай този имейл.</p>
+<p>Moto Zona</p>");
+        }
+    }
+
+    private async Task ValidateAndConsumeCodeAsync(long userId, string purpose, string rawCode)
+    {
+        var code = await _accountCodeRepository.GetLatestActiveCodeAsync(
+            userId,
+            purpose,
+            DateTime.UtcNow);
+
+        if (code is null)
+            throw new InvalidOperationException("Кодът е невалиден или е изтекъл.");
+
+        if (code.AttemptCount >= _accountCodeOptions.MaxAttempts)
+            throw new InvalidOperationException("Кодът е блокиран след твърде много грешни опити. Заяви нов код.");
+
+        var incomingHash = HashAccountCode(userId, purpose, rawCode.Trim());
+
+        var isValid = SecureEquals(incomingHash, code.CodeHash);
+
+        if (!isValid)
+        {
+            await _accountCodeRepository.IncreaseAttemptCountAsync(code.Id);
+            throw new InvalidOperationException("Кодът е невалиден или е изтекъл.");
+        }
+
+        await _accountCodeRepository.MarkConsumedAsync(code.Id);
+    }
+
+    private static string CreateSixDigitCode()
+    {
+        var number = RandomNumberGenerator.GetInt32(0, 1_000_000);
+        return number.ToString("D6", CultureInfo.InvariantCulture);
+    }
+
+    private string HashAccountCode(long userId, string purpose, string code)
+    {
+        var secretBytes = Encoding.UTF8.GetBytes(_accountCodeOptions.SecretKey);
+        var payload = $"{userId}|{purpose}|{code}";
+
+        using var hmac = new HMACSHA256(secretBytes);
+        var hashBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
+
+        return Convert.ToBase64String(hashBytes);
+    }
+
+    private static bool SecureEquals(string leftBase64, string rightBase64)
+    {
+        try
+        {
+            var leftBytes = Convert.FromBase64String(leftBase64);
+            var rightBytes = Convert.FromBase64String(rightBase64);
+
+            return CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string NormalizeEmail(string email)

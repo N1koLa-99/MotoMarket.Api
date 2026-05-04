@@ -32,6 +32,12 @@ builder.Services.Configure<MyPosOptions>(
 builder.Services.Configure<FixedExchangeRatesOptions>(
     builder.Configuration.GetSection(FixedExchangeRatesOptions.SectionName));
 
+builder.Services.Configure<EmailOptions>(
+    builder.Configuration.GetSection(EmailOptions.SectionName));
+
+builder.Services.Configure<AccountCodeOptions>(
+    builder.Configuration.GetSection(AccountCodeOptions.SectionName));
+
 var jwtOptions = builder.Configuration
     .GetSection(JwtOptions.SectionName)
     .Get<JwtOptions>() ?? throw new InvalidOperationException("Missing Jwt configuration.");
@@ -58,6 +64,7 @@ builder.Services.AddScoped<IListingRepository, ListingRepository>();
 builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 builder.Services.AddScoped<IProfileRepository, ProfileRepository>();
 builder.Services.AddScoped<IAdminRepository, AdminRepository>();
+builder.Services.AddScoped<IAccountCodeRepository, AccountCodeRepository>();
 
 // =========================
 // DI - Services
@@ -75,6 +82,7 @@ builder.Services.AddScoped<IMyPosSignatureService, MyPosSignatureService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 
 // =========================
 // MVC / Controllers

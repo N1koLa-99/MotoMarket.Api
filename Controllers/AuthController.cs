@@ -29,12 +29,6 @@ public class AuthController : ControllerBase
             HttpContext.Connection.RemoteIpAddress?.ToString(),
             Request.Headers.UserAgent.ToString());
 
-        var refreshToken = _authService.ConsumeLatestRefreshToken();
-        if (!string.IsNullOrWhiteSpace(refreshToken))
-        {
-            CookieHelper.SetRefreshTokenCookie(Response, refreshToken, _jwtOptions.RefreshTokenDays);
-        }
-
         return Ok(response);
     }
 
@@ -47,13 +41,65 @@ public class AuthController : ControllerBase
             HttpContext.Connection.RemoteIpAddress?.ToString(),
             Request.Headers.UserAgent.ToString());
 
-        var refreshToken = _authService.ConsumeLatestRefreshToken();
-        if (!string.IsNullOrWhiteSpace(refreshToken))
-        {
-            CookieHelper.SetRefreshTokenCookie(Response, refreshToken, _jwtOptions.RefreshTokenDays);
-        }
-
         return Ok(response);
+    }
+
+    [HttpPost("verify-email")]
+    [AllowAnonymous]
+    public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailRequest request)
+    {
+        await _authService.VerifyEmailAsync(request);
+
+        return Ok(new
+        {
+            success = true,
+            message = "Имейлът е потвърден успешно. Вече можеш да влезеш в профила си."
+        });
+    }
+
+    [HttpPost("resend-email-code")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ResendEmailCode([FromBody] ResendEmailVerificationRequest request)
+    {
+        await _authService.ResendEmailVerificationAsync(
+            request,
+            HttpContext.Connection.RemoteIpAddress?.ToString());
+
+        return Ok(new
+        {
+            success = true,
+            message = "Ако имейлът съществува и не е потвърден, изпратихме нов код."
+        });
+    }
+
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
+    {
+        await _authService.ForgotPasswordAsync(
+            request,
+            HttpContext.Connection.RemoteIpAddress?.ToString());
+
+        return Ok(new
+        {
+            success = true,
+            message = "Ако има профил с този имейл, изпратихме код за смяна на парола."
+        });
+    }
+
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
+    {
+        await _authService.ResetPasswordAsync(
+            request,
+            HttpContext.Connection.RemoteIpAddress?.ToString());
+
+        return Ok(new
+        {
+            success = true,
+            message = "Паролата е сменена успешно. Влез с новата парола."
+        });
     }
 
     [HttpPost("login")]
@@ -101,12 +147,17 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Logout()
     {
         var refreshToken = Request.Cookies[CookieHelper.RefreshTokenCookieName];
+
         await _authService.LogoutAsync(
             refreshToken ?? string.Empty,
             HttpContext.Connection.RemoteIpAddress?.ToString());
 
         CookieHelper.DeleteRefreshTokenCookie(Response);
-        return Ok(new { message = "Успешен logout." });
+
+        return Ok(new
+        {
+            message = "Успешен logout."
+        });
     }
 
     [Authorize]
@@ -115,6 +166,7 @@ public class AuthController : ControllerBase
     {
         var userId = User.GetUserId();
         var me = await _authService.GetMeAsync(userId);
+
         return Ok(me);
     }
 
@@ -124,6 +176,7 @@ public class AuthController : ControllerBase
     {
         var userId = User.GetUserId();
         var profile = await _authService.UpdatePrivateProfileAsync(userId, request);
+
         return Ok(profile);
     }
 
@@ -140,7 +193,10 @@ public class AuthController : ControllerBase
 
         CookieHelper.DeleteRefreshTokenCookie(Response);
 
-        return Ok(new { message = "Паролата е сменена успешно. Влез отново." });
+        return Ok(new
+        {
+            message = "Паролата е сменена успешно. Влез отново."
+        });
     }
 
     [Authorize]
@@ -156,7 +212,10 @@ public class AuthController : ControllerBase
 
         CookieHelper.DeleteRefreshTokenCookie(Response);
 
-        return Ok(new { message = "Имейлът е сменен успешно. Влез отново." });
+        return Ok(new
+        {
+            message = "Имейлът е сменен успешно. Влез отново."
+        });
     }
 
     [Authorize]
@@ -169,6 +228,9 @@ public class AuthController : ControllerBase
 
         CookieHelper.DeleteRefreshTokenCookie(Response);
 
-        return Ok(new { message = "Профилът е изтрит успешно." });
+        return Ok(new
+        {
+            message = "Профилът е изтрит успешно."
+        });
     }
 }

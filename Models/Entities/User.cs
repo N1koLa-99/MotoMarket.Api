@@ -34,4 +34,6 @@ public class User
     public bool IsActive { get; set; }
     public bool AcceptedPrivacyPolicy { get; set; }
     public DateTime? PrivacyPolicyAcceptedAtUtc { get; set; }
+    public bool EmailConfirmed { get; set; }
+    public DateTime? EmailConfirmedAtUtc { get; set; }
 }
