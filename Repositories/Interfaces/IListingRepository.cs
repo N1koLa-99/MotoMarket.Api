@@ -14,6 +14,7 @@ public interface IListingRepository
 
     Task<long> InsertListingAsync(Listing listing);
     Task UpdateListingAsync(long listingId, UpdateListingRequest request, decimal priceEur);
+    Task InsertListingPriceHistoryAsync(ListingPriceHistory history);
     Task ReplaceListingPhotosAsync(long listingId, List<ListingPhotoRequest> photos);
 
     Task UpdateListingPromotionAsync(long listingId, string promotionType, DateTime startAt, DateTime endAt);

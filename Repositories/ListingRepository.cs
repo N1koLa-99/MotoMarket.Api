@@ -183,7 +183,8 @@ SET
     RegionId = @RegionId,
     CityId = @CityId,
     ContactName = @ContactName,
-    ContactPhone = @ContactPhone
+    ContactPhone = @ContactPhone,
+    UpdatedAt = @UpdatedAt
 WHERE Id = @ListingId;
 """;
 
@@ -207,14 +208,15 @@ WHERE Id = @ListingId;
             request.Mileage,
             request.Color,
             request.PriceOriginal,
-            request.CurrencyCode,
+            CurrencyCode = request.CurrencyCode.Trim().ToUpperInvariant(),
             request.ExchangeRateToEUR,
             PriceEUR = priceEur,
             request.CountryId,
             request.RegionId,
             request.CityId,
             request.ContactName,
-            request.ContactPhone
+            request.ContactPhone,
+            UpdatedAt = DateTime.UtcNow
         });
     }
 
@@ -484,6 +486,10 @@ SELECT
     l.EngineCC,
     l.Mileage,
     l.ViewCount,
+    ph.ChangeType AS LastPriceChangeType,
+    ph.OldPriceOriginal AS PreviousPriceOriginal,
+    ph.OldPriceEUR AS PreviousPriceEUR,
+    ph.ChangedAt AS LastPriceChangeAt,
     CASE
         WHEN l.PromotionType = 'VIP' AND l.PromotionEndAt IS NOT NULL AND l.PromotionEndAt > SYSUTCDATETIME() THEN 'VIP'
         WHEN l.PromotionType = 'TOP' AND l.PromotionEndAt IS NOT NULL AND l.PromotionEndAt > SYSUTCDATETIME() THEN 'TOP'
@@ -512,6 +518,18 @@ LEFT JOIN dbo.LookupValues lc ON lc.Id = l.LicenseCategoryLookupId
 LEFT JOIN dbo.Countries c ON c.Id = l.CountryId
 LEFT JOIN dbo.Regions r ON r.Id = l.RegionId
 LEFT JOIN dbo.Cities ct ON ct.Id = l.CityId
+OUTER APPLY
+(
+    SELECT TOP 1
+        h.ChangeType,
+        h.OldPriceOriginal,
+        h.OldPriceEUR,
+        h.ChangedAt
+    FROM dbo.ListingPriceHistory h
+    WHERE h.ListingId = l.Id
+      AND h.ChangeType IN ('UP', 'DOWN')
+    ORDER BY h.ChangedAt DESC, h.Id DESC
+) ph
 OUTER APPLY
 (
     SELECT TOP 1
@@ -567,6 +585,10 @@ SELECT TOP 1
     l.ContactName,
     l.ContactPhone,
     l.ViewCount,
+    ph.ChangeType AS LastPriceChangeType,
+    ph.OldPriceOriginal AS PreviousPriceOriginal,
+    ph.OldPriceEUR AS PreviousPriceEUR,
+    ph.ChangedAt AS LastPriceChangeAt,
     CASE
         WHEN l.PromotionType = 'VIP' AND l.PromotionEndAt IS NOT NULL AND l.PromotionEndAt > SYSUTCDATETIME() THEN 'VIP'
         WHEN l.PromotionType = 'TOP' AND l.PromotionEndAt IS NOT NULL AND l.PromotionEndAt > SYSUTCDATETIME() THEN 'TOP'
@@ -597,6 +619,18 @@ LEFT JOIN dbo.LookupValues cond ON cond.Id = l.ConditionLookupId
 LEFT JOIN dbo.Countries c ON c.Id = l.CountryId
 LEFT JOIN dbo.Regions r ON r.Id = l.RegionId
 LEFT JOIN dbo.Cities ct ON ct.Id = l.CityId
+OUTER APPLY
+(
+    SELECT TOP 1
+        h.ChangeType,
+        h.OldPriceOriginal,
+        h.OldPriceEUR,
+        h.ChangedAt
+    FROM dbo.ListingPriceHistory h
+    WHERE h.ListingId = l.Id
+      AND h.ChangeType IN ('UP', 'DOWN')
+    ORDER BY h.ChangedAt DESC, h.Id DESC
+) ph
 WHERE l.Id = @ListingId;
 """;
 
@@ -730,5 +764,38 @@ END ASC,
             "oldest" => baseOrder + "COALESCE(l.LastRefreshAt, l.PublishedAt) ASC, l.Id ASC",
             _ => baseOrder + "COALESCE(l.LastRefreshAt, l.PublishedAt) DESC, l.Id DESC"
         };
+    }
+
+    public async Task InsertListingPriceHistoryAsync(ListingPriceHistory history)
+    {
+        const string sql = """
+INSERT INTO dbo.ListingPriceHistory
+(
+    ListingId,
+    ChangeType,
+    OldPriceOriginal,
+    NewPriceOriginal,
+    OldPriceEUR,
+    NewPriceEUR,
+    CurrencyCode,
+    ExchangeRateToEUR,
+    ChangedAt
+)
+VALUES
+(
+    @ListingId,
+    @ChangeType,
+    @OldPriceOriginal,
+    @NewPriceOriginal,
+    @OldPriceEUR,
+    @NewPriceEUR,
+    @CurrencyCode,
+    @ExchangeRateToEUR,
+    @ChangedAt
+);
+""";
+
+        using var connection = _connectionFactory.CreateConnection();
+        await connection.ExecuteAsync(sql, history);
     }
 }

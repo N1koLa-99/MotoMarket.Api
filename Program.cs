@@ -111,6 +111,7 @@ builder.Services
 // Swagger
 // =========================
 builder.Services.AddEndpointsApiExplorer();
+
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo
@@ -145,7 +146,8 @@ builder.Services.AddSwaggerGen(options =>
 // =========================
 // Authentication
 // =========================
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.RequireHttpsMetadata = true;
@@ -182,15 +184,22 @@ builder.Services.AddCors(options =>
     {
         policy
             .WithOrigins(
+                // Local frontend - Live Server
                 "http://127.0.0.1:5500",
                 "http://localhost:5500",
+                "http://127.0.0.1:5501",
+                "http://localhost:5501",
+
+                // Local frontend - React/Vite/etc.
                 "http://localhost:3000",
                 "https://localhost:3000",
                 "http://localhost:5173",
                 "https://localhost:5173",
-                "https://motositemages.z6.web.core.windows.net"
-            // Ако вържеш custom domain, добави и него:
-            // "https://motozona.bg"
+
+                // Production frontend
+                "https://motositemages.z6.web.core.windows.net",
+                "https://moto-zona.com",
+                "https://www.moto-zona.com"
             )
             .AllowAnyHeader()
             .AllowAnyMethod()
@@ -206,6 +215,7 @@ var app = builder.Build();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 app.UseSwagger();
+
 app.UseSwaggerUI(options =>
 {
     options.SwaggerEndpoint("/swagger/v1/swagger.json", "MotoMarket API v1");
@@ -214,9 +224,12 @@ app.UseSwaggerUI(options =>
 
 app.UseHttpsRedirection();
 
+app.UseRouting();
+
 app.UseCors("Frontend");
 
 app.UseAuthentication();
+
 app.UseAuthorization();
 
 app.MapControllers();

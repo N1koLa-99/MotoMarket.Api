@@ -50,4 +50,15 @@ public class PublicListingCardResponse
 
     public string? MainPhotoUrl { get; set; }
     public string? MainPhotoBlobName { get; set; }
+
+    public string? LastPriceChangeType { get; set; }   // UP / DOWN
+    public decimal? PreviousPriceOriginal { get; set; }
+    public decimal? PreviousPriceEUR { get; set; }
+    public DateTime? LastPriceChangeAt { get; set; }
+
+    public decimal? PreviousDisplayPrice { get; set; }
+
+    public bool HasPriceChange =>
+        string.Equals(LastPriceChangeType, "UP", System.StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(LastPriceChangeType, "DOWN", System.StringComparison.OrdinalIgnoreCase);
 }

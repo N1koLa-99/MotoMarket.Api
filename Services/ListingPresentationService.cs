@@ -44,6 +44,13 @@ public class ListingPresentationService : IListingPresentationService
 
             item.DisplayCurrencyCode = displayCurrencyCode;
             item.DisplayPrice = _currencyConversionService.ConvertFromEUR(item.PriceEUR, displayCurrencyCode);
+
+            if (item.PreviousPriceEUR.HasValue)
+            {
+                item.PreviousDisplayPrice = _currencyConversionService.ConvertFromEUR(
+                    item.PreviousPriceEUR.Value,
+                    displayCurrencyCode);
+            }
         }
 
         var totalPages = totalCount == 0
@@ -89,6 +96,13 @@ public class ListingPresentationService : IListingPresentationService
         var displayCurrencyCode = await ResolveViewerCurrencyCodeAsync(viewerUserId);
         details.DisplayCurrencyCode = displayCurrencyCode;
         details.DisplayPrice = _currencyConversionService.ConvertFromEUR(details.PriceEUR, displayCurrencyCode);
+
+        if (details.PreviousPriceEUR.HasValue)
+        {
+            details.PreviousDisplayPrice = _currencyConversionService.ConvertFromEUR(
+                details.PreviousPriceEUR.Value,
+                displayCurrencyCode);
+        }
 
         var seller = await _listingRepository.GetUserByIdAsync(details.UserId);
         if (seller != null)

@@ -144,7 +144,7 @@ public class ListingService : IListingService
         ValidatePhotos(request.Photos);
         await _listingValidationService.ValidateUpdateAsync(request);
 
-        await GetOwnedListing(userId, listingId);
+        var existingListing = await GetOwnedListing(userId, listingId);
         var sanitizedPhotos = await NormalizePhotosAsync(userId, request.Photos);
 
         var oldBlobNames = await _listingRepository.GetListingBlobNamesAsync(listingId);
@@ -159,9 +159,31 @@ public class ListingService : IListingService
             .ToList();
 
         var priceEur = CalculatePriceEur(request.PriceOriginal, request.ExchangeRateToEUR);
+        var normalizedCurrencyCode = request.CurrencyCode.Trim().ToUpperInvariant();
+
+        var priceChanged = HasPriceChanged(existingListing, request, priceEur);
+        var priceChangeType = priceChanged
+            ? GetPriceChangeType(existingListing, request, priceEur)
+            : null;
 
         await _listingRepository.UpdateListingAsync(listingId, request, priceEur);
         await _listingRepository.ReplaceListingPhotosAsync(listingId, sanitizedPhotos);
+
+        if (priceChanged && priceChangeType is not null)
+        {
+            await _listingRepository.InsertListingPriceHistoryAsync(new ListingPriceHistory
+            {
+                ListingId = listingId,
+                ChangeType = priceChangeType,
+                OldPriceOriginal = existingListing.PriceOriginal,
+                NewPriceOriginal = request.PriceOriginal,
+                OldPriceEUR = existingListing.PriceEUR,
+                NewPriceEUR = priceEur,
+                CurrencyCode = normalizedCurrencyCode,
+                ExchangeRateToEUR = request.ExchangeRateToEUR,
+                ChangedAt = DateTime.UtcNow
+            });
+        }
 
         if (blobsToDelete.Count > 0)
         {
@@ -175,6 +197,37 @@ public class ListingService : IListingService
             BlobNamesToDelete = blobsToDelete,
             Message = "Обявата е редактирана успешно."
         };
+    }
+
+    private static bool HasPriceChanged(Listing existingListing, UpdateListingRequest request, decimal newPriceEur)
+    {
+        var normalizedCurrencyCode = request.CurrencyCode.Trim().ToUpperInvariant();
+
+        return existingListing.PriceOriginal != request.PriceOriginal
+            || !string.Equals(existingListing.CurrencyCode, normalizedCurrencyCode, StringComparison.OrdinalIgnoreCase)
+            || Math.Round(existingListing.PriceEUR, 2) != Math.Round(newPriceEur, 2);
+    }
+
+    private static string? GetPriceChangeType(Listing existingListing, UpdateListingRequest request, decimal newPriceEur)
+    {
+        var normalizedCurrencyCode = request.CurrencyCode.Trim().ToUpperInvariant();
+
+        if (string.Equals(existingListing.CurrencyCode, normalizedCurrencyCode, StringComparison.OrdinalIgnoreCase))
+        {
+            if (request.PriceOriginal > existingListing.PriceOriginal)
+                return "UP";
+
+            if (request.PriceOriginal < existingListing.PriceOriginal)
+                return "DOWN";
+        }
+
+        if (Math.Round(newPriceEur, 2) > Math.Round(existingListing.PriceEUR, 2))
+            return "UP";
+
+        if (Math.Round(newPriceEur, 2) < Math.Round(existingListing.PriceEUR, 2))
+            return "DOWN";
+
+        return null;
     }
 
     public async Task<ListingOperationResponse> DeleteAsync(long userId, long listingId)
