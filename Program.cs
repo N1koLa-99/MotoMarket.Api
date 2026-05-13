@@ -218,12 +218,13 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // =========================
-// Middleware
+// Middleware pipeline
+// ВАЖНО: Редът тук има значение!
 // =========================
+
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 app.UseSwagger();
-
 app.UseSwaggerUI(options =>
 {
     options.SwaggerEndpoint("/swagger/v1/swagger.json", "MotoMarket API v1");
@@ -232,9 +233,11 @@ app.UseSwaggerUI(options =>
 
 app.UseHttpsRedirection();
 
-app.UseRouting();
-
+// CORS трябва да е ПРЕДИ UseRouting, UseAuthentication и UseAuthorization
+// Иначе preflight OPTIONS заявките не получават правилните хедъри
 app.UseCors("Frontend");
+
+app.UseRouting();
 
 app.UseAuthentication();
 
