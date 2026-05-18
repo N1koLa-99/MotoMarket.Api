@@ -4,6 +4,7 @@ using MotoMarket.Api.Infrastructure;
 using MotoMarket.Api.Models.Requests;
 using MotoMarket.Api.Services.Interfaces;
 using System.Security.Claims;
+using System.Text.Encodings.Web;
 
 namespace MotoMarket.Api.Controllers;
 
@@ -104,5 +105,60 @@ public class ListingsController : ControllerBase
             User.FindFirstValue("userId");
 
         return long.TryParse(claimValue, out var userId) ? userId : null;
+    }
+    [AllowAnonymous]
+    [HttpGet("{listingId:long}/og")]
+    public async Task<IActionResult> GetOpenGraph(long listingId)
+    {
+        try
+        {
+            var listing = await _listingPresentationService.GetPublicByIdAsync(
+                listingId,
+                viewerUserId: null,
+                incrementViewCount: false);
+
+            var mainPhoto = listing.Photos?
+                .FirstOrDefault(p => p.IsMain)?.FileUrl
+                ?? listing.Photos?.FirstOrDefault()?.FileUrl
+                ?? "";
+
+            var title = listing.Title ?? "Обява";
+            var price = listing.PriceOriginal > 0
+                ? $"{listing.PriceOriginal:N0} {listing.CurrencyCode}"
+                : "Цена при запитване";
+            var description = $"{price} · {listing.VehicleYear} · {listing.Mileage?.ToString("N0")} км";
+            var url = $"https://moto-zona.com/ListingDetails.html?id={listingId}";
+
+            var html = $"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="utf-8" />
+              <title>{HtmlEncoder.Default.Encode(title)}</title>
+              <meta property="og:type" content="website" />
+              <meta property="og:url" content="{url}" />
+              <meta property="og:title" content="{HtmlEncoder.Default.Encode(title)}" />
+              <meta property="og:description" content="{HtmlEncoder.Default.Encode(description)}" />
+              <meta property="og:image" content="{mainPhoto}" />
+              <meta property="og:image:width" content="1200" />
+              <meta property="og:image:height" content="630" />
+              <meta property="og:site_name" content="Мото Зона" />
+              <meta name="twitter:card" content="summary_large_image" />
+              <meta name="twitter:title" content="{HtmlEncoder.Default.Encode(title)}" />
+              <meta name="twitter:description" content="{HtmlEncoder.Default.Encode(description)}" />
+              <meta name="twitter:image" content="{mainPhoto}" />
+            </head>
+            <body>
+              <script>window.location.href = "{url}";</script>
+            </body>
+            </html>
+            """;
+
+            return Content(html, "text/html");
+        }
+        catch
+        {
+            return NotFound();
+        }
     }
 }
