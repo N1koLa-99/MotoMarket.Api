@@ -69,6 +69,7 @@ builder.Services.AddScoped<IAccountCodeRepository, AccountCodeRepository>();
 // =========================
 // DI - Services
 // =========================
+builder.Services.AddHttpClient();
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
