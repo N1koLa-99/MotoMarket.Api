@@ -22,6 +22,9 @@ public class User
     public int? CityId { get; set; }
 
     public string? LogoUrl { get; set; }
+    public string? LogoBlobName { get; set; }
+    public string? CompanyDescription { get; set; }
+    public string? WebsiteUrl { get; set; }
 
     public int PublishedListingsTotalCount { get; set; }
     public int PrivateFreeUsedCount { get; set; }

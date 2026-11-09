@@ -26,4 +26,10 @@ public interface IProfileRepository
     Task AddFavoriteAsync(long userId, long listingId);
     Task RemoveFavoriteAsync(long userId, long listingId);
     Task<bool> ListingExistsAsync(long listingId);
+
+    Task UpdateAvatarAsync(long userId, string? blobName);
+
+    Task<User?> GetPublicUserByIdAsync(long userId);
+    Task<int> CountPublicListingsByUserAsync(long userId);
+    Task<List<ProfileListingCardResponse>> GetPublicListingsByUserAsync(long userId, int page, int pageSize);
 }

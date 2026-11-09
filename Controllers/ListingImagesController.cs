@@ -18,7 +18,8 @@ public class ListingImagesController : ControllerBase
 
     [Authorize]
     [HttpPost("upload")]
-    [RequestSizeLimit(100 * 1024 * 1024)]
+    [RequestSizeLimit(500 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 500 * 1024 * 1024)]
     public async Task<IActionResult> Upload([FromForm] List<IFormFile> files)
     {
         try

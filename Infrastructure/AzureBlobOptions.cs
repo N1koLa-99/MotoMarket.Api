@@ -7,5 +7,7 @@ public class AzureBlobOptions
     public string ConnectionString { get; set; } = default!;
     public string ContainerName { get; set; } = default!;
     public int ReadSasMinutes { get; set; } = 60;
-    public int MaxFileSizeMb { get; set; } = 10;
+    public int TotalBudgetMb { get; set; } = 150;
+    public int CompressIfLargerThanMb { get; set; } = 5;
+    public int CompressQuality { get; set; } = 82;
 }

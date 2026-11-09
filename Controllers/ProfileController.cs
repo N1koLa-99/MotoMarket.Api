@@ -87,4 +87,32 @@ public class ProfileController : ControllerBase
             message = "Обявата е премахната от favorites."
         });
     }
+
+    [HttpPost("avatar")]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 10 * 1024 * 1024)]
+    public async Task<IActionResult> UploadAvatar(IFormFile file)
+    {
+        var userId = User.GetUserId();
+        var avatarUrl = await _profileService.UploadAvatarAsync(userId, file);
+
+        return Ok(new
+        {
+            success = true,
+            avatarUrl
+        });
+    }
+
+    [HttpDelete("avatar")]
+    public async Task<IActionResult> DeleteAvatar()
+    {
+        var userId = User.GetUserId();
+        await _profileService.DeleteAvatarAsync(userId);
+
+        return Ok(new
+        {
+            success = true,
+            message = "Аватарът е изтрит успешно."
+        });
+    }
 }

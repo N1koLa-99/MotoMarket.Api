@@ -21,6 +21,7 @@ public class UserProfileResponse
     public int? CityId { get; set; }
 
     public string? LogoUrl { get; set; }
+    public string? AvatarUrl { get; set; }
 
     public int PublishedListingsTotalCount { get; set; }
     public int PrivateFreeUsedCount { get; set; }

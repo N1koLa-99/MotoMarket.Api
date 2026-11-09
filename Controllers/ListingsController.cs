@@ -3,6 +3,9 @@ using Microsoft.AspNetCore.Mvc;
 using MotoMarket.Api.Infrastructure;
 using MotoMarket.Api.Models.Requests;
 using MotoMarket.Api.Services.Interfaces;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Processing;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Security.Claims;
@@ -101,6 +104,7 @@ public class ListingsController : ControllerBase
 
     [AllowAnonymous]
     [HttpGet("{listingId:long}/og-image")]
+    [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any, NoStore = false)]
     public async Task<IActionResult> GetOpenGraphImage(long listingId)
     {
         const string fallbackImageUrl = "https://moto-zona.com/ImagesVideos/LogoMotoZonaNew.png";
@@ -130,12 +134,55 @@ public class ListingsController : ControllerBase
                 return Redirect(fallbackImageUrl);
             }
 
-            var imageBytes = await response.Content.ReadAsByteArrayAsync();
-            var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+            await using var inputStream = await response.Content.ReadAsStreamAsync();
+
+            using var original = await Image.LoadAsync(inputStream);
+
+            const int canvasWidth = 1200;
+            const int canvasHeight = 630;
+
+            // Blurred, slightly darkened fill of the whole frame so there are
+            // never empty side bars for portrait/landscape photos alike.
+            using var canvas = original.Clone(x =>
+            {
+                x.Resize(new ResizeOptions
+                {
+                    Size = new Size(canvasWidth, canvasHeight),
+                    Mode = ResizeMode.Crop,
+                    Position = AnchorPositionMode.Center
+                });
+                x.GaussianBlur(18f);
+                x.Brightness(0.7f);
+            });
+
+            // The full item, fit inside the frame, centered on top of the fill.
+            using var foreground = original.Clone(x =>
+            {
+                x.Resize(new ResizeOptions
+                {
+                    Size = new Size(canvasWidth, canvasHeight),
+                    Mode = ResizeMode.Max
+                });
+            });
+
+            var location = new Point(
+                (canvasWidth - foreground.Width) / 2,
+                (canvasHeight - foreground.Height) / 2);
+
+            canvas.Mutate(x => x.DrawImage(foreground, location, 1f));
+
+            var output = new MemoryStream();
+
+            await canvas.SaveAsJpegAsync(output, new JpegEncoder
+            {
+                Quality = 82
+            });
+
+            output.Position = 0;
 
             Response.Headers["Cache-Control"] = "public,max-age=3600";
 
-            return File(imageBytes, contentType);
+            return File(output.ToArray(), "image/jpeg");
         }
         catch
         {
@@ -159,9 +206,21 @@ public class ListingsController : ControllerBase
             const string siteUrl = "https://moto-zona.com";
             const string apiUrl = "https://motomarketapi.azurewebsites.net";
 
-            var redirectUrl = $"{siteUrl}/ListingDetails.html?id={listingId}";
-            var shareUrl = redirectUrl;
-            var imageUrl = $"{apiUrl}/api/listings/{listingId}/og-image";
+            var publicListingUrl = $"{siteUrl}/ListingDetails.html?id={listingId}";
+
+            var userAgent = Request.Headers.UserAgent.ToString();
+
+            if (!IsSocialCrawler(userAgent))
+            {
+                Response.Headers["Cache-Control"] = "no-store,no-cache,must-revalidate,max-age=0";
+                Response.Headers["Pragma"] = "no-cache";
+                Response.Headers["Expires"] = "0";
+
+                return Redirect(publicListingUrl);
+            }
+
+            var shareUrl = $"{apiUrl}/api/listings/{listingId}/og";
+            var imageUrl = $"{apiUrl}/api/listings/{listingId}/og-image?v=5";
 
             var title = string.IsNullOrWhiteSpace(listing.Title)
                 ? "Обява"
@@ -176,9 +235,9 @@ public class ListingsController : ControllerBase
                 : "Цена при запитване";
 
             var descriptionParts = new List<string>
-        {
-            priceText
-        };
+            {
+                priceText
+            };
 
             if (listing.VehicleYear > 0)
             {
@@ -195,51 +254,49 @@ public class ListingsController : ControllerBase
             var encodedTitle = HtmlEncoder.Default.Encode(title);
             var encodedDescription = HtmlEncoder.Default.Encode(description);
             var encodedShareUrl = HtmlEncoder.Default.Encode(shareUrl);
-            var encodedRedirectUrl = HtmlEncoder.Default.Encode(redirectUrl);
             var encodedImageUrl = HtmlEncoder.Default.Encode(imageUrl);
-            var jsRedirectUrl = JavaScriptEncoder.Default.Encode(redirectUrl);
+            var encodedPublicListingUrl = HtmlEncoder.Default.Encode(publicListingUrl);
 
             var html = $"""
-        <!DOCTYPE html>
-        <html lang="bg">
-        <head>
-          <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>{encodedTitle}</title>
-          <meta name="description" content="{encodedDescription}" />
-          <meta name="robots" content="noindex,nofollow" />
-          <link rel="canonical" href="{encodedRedirectUrl}" />
-          <meta http-equiv="refresh" content="0;url={encodedRedirectUrl}" />
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-          <meta property="og:locale" content="bg_BG" />
-          <meta property="og:type" content="product" />
-          <meta property="og:site_name" content="Мото Зона" />
-          <meta property="og:url" content="{encodedShareUrl}" />
-          <meta property="og:title" content="{encodedTitle}" />
-          <meta property="og:description" content="{encodedDescription}" />
-          <meta property="og:image" content="{encodedImageUrl}" />
-          <meta property="og:image:secure_url" content="{encodedImageUrl}" />
-          <meta property="og:image:width" content="1200" />
-          <meta property="og:image:height" content="630" />
-          <meta property="og:image:alt" content="{encodedTitle}" />
+  <title>{encodedTitle}</title>
+  <meta name="description" content="{encodedDescription}" />
+  <meta name="robots" content="noindex,nofollow" />
 
-          <meta name="twitter:card" content="summary_large_image" />
-          <meta name="twitter:title" content="{encodedTitle}" />
-          <meta name="twitter:description" content="{encodedDescription}" />
-          <meta name="twitter:image" content="{encodedImageUrl}" />
-          <meta name="twitter:url" content="{encodedShareUrl}" />
-        </head>
-        <body>
-          <noscript>
-            <a href="{encodedRedirectUrl}">Продължи към обявата</a>
-          </noscript>
+  <meta property="og:locale" content="bg_BG" />
+  <meta property="og:type" content="product" />
+  <meta property="og:site_name" content="Мото Зона" />
+  <meta property="og:url" content="{encodedShareUrl}" />
+  <meta property="og:title" content="{encodedTitle}" />
+  <meta property="og:description" content="{encodedDescription}" />
 
-          <script>
-            window.location.replace("{jsRedirectUrl}");
-          </script>
-        </body>
-        </html>
-        """;
+  <meta property="og:image" content="{encodedImageUrl}" />
+  <meta property="og:image:secure_url" content="{encodedImageUrl}" />
+  <meta property="og:image:type" content="image/jpeg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="{encodedTitle}" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{encodedTitle}" />
+  <meta name="twitter:description" content="{encodedDescription}" />
+  <meta name="twitter:image" content="{encodedImageUrl}" />
+  <meta name="twitter:url" content="{encodedShareUrl}" />
+</head>
+<body>
+  <a href="{encodedPublicListingUrl}">Виж обявата</a>
+</body>
+</html>
+""";
+
+            Response.Headers["Cache-Control"] = "no-store,no-cache,must-revalidate,max-age=0";
+            Response.Headers["Pragma"] = "no-cache";
+            Response.Headers["Expires"] = "0";
 
             return Content(html, "text/html; charset=utf-8");
         }
@@ -286,5 +343,27 @@ public class ListingsController : ControllerBase
         }
 
         return null;
+    }
+
+    private static bool IsSocialCrawler(string? userAgent)
+    {
+        if (string.IsNullOrWhiteSpace(userAgent))
+        {
+            return false;
+        }
+
+        var ua = userAgent.ToLowerInvariant();
+
+        return
+            ua.Contains("facebookexternalhit") ||
+            ua.Contains("facebot") ||
+            ua.Contains("meta-externalagent") ||
+            ua.Contains("meta-externalfetcher") ||
+            ua.Contains("twitterbot") ||
+            ua.Contains("linkedinbot") ||
+            ua.Contains("slackbot") ||
+            ua.Contains("telegrambot") ||
+            ua.Contains("whatsapp") ||
+            ua.Contains("viber");
     }
 }

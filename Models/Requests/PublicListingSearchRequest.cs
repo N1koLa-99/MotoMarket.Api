@@ -21,6 +21,8 @@ public class PublicListingSearchRequest
     public int? RegionId { get; set; }
     public int? CityId { get; set; }
 
+    public long? SellerUserId { get; set; }
+
     public decimal? PriceFrom { get; set; }
     public decimal? PriceTo { get; set; }
 

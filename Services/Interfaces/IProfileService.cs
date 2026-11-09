@@ -1,4 +1,5 @@
-﻿using MotoMarket.Api.Models.Responses;
+﻿using Microsoft.AspNetCore.Http;
+using MotoMarket.Api.Models.Responses;
 
 namespace MotoMarket.Api.Services.Interfaces;
 
@@ -13,4 +14,10 @@ public interface IProfileService
     Task AddFavoriteAsync(long userId, long listingId);
     Task RemoveFavoriteAsync(long userId, long listingId);
     Task<bool> IsFavoriteAsync(long userId, long listingId);
+
+    Task<string> UploadAvatarAsync(long userId, IFormFile file);
+    Task DeleteAvatarAsync(long userId);
+
+    Task<PublicUserProfileResponse> GetPublicProfileAsync(long userId);
+    Task<PagedResultResponse<ProfileListingCardResponse>> GetPublicListingsAsync(long userId, int page, int pageSize);
 }

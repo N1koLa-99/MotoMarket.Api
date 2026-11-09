@@ -653,6 +653,7 @@ WHERE l.Id = @ListingId;
         parameters.Add("CountryId", request.CountryId);
         parameters.Add("RegionId", request.RegionId);
         parameters.Add("CityId", request.CityId);
+        parameters.Add("SellerUserId", request.SellerUserId);
         parameters.Add("PriceFrom", request.PriceFrom);
         parameters.Add("PriceTo", request.PriceTo);
         parameters.Add("YearFrom", request.YearFrom);
@@ -710,6 +711,9 @@ AND
 
         if (request.CityId.HasValue)
             sql.AppendLine("AND l.CityId = @CityId");
+
+        if (request.SellerUserId.HasValue)
+            sql.AppendLine("AND l.UserId = @SellerUserId");
 
         if (request.PriceFrom.HasValue)
             sql.AppendLine("AND l.PriceEUR >= @PriceFrom");

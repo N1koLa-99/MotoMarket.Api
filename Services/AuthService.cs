@@ -21,6 +21,7 @@ public class AuthService : IAuthService
     private readonly IJwtTokenService _jwtTokenService;
     private readonly IAccountCodeRepository _accountCodeRepository;
     private readonly IEmailSender _emailSender;
+    private readonly IBlobImageService _blobImageService;
 
     private readonly JwtOptions _jwtOptions;
     private readonly AccountCodeOptions _accountCodeOptions;
@@ -34,7 +35,8 @@ public class AuthService : IAuthService
         IOptions<JwtOptions> jwtOptions,
         IAccountCodeRepository accountCodeRepository,
         IEmailSender emailSender,
-        IOptions<AccountCodeOptions> accountCodeOptions)
+        IOptions<AccountCodeOptions> accountCodeOptions,
+        IBlobImageService blobImageService)
     {
         _authRepository = authRepository;
         _passwordService = passwordService;
@@ -43,6 +45,7 @@ public class AuthService : IAuthService
         _accountCodeRepository = accountCodeRepository;
         _emailSender = emailSender;
         _accountCodeOptions = accountCodeOptions.Value;
+        _blobImageService = blobImageService;
     }
 
     public async Task<RegisterStartResponse> RegisterPrivateAsync(
@@ -132,6 +135,8 @@ public class AuthService : IAuthService
             RegionId = request.RegionId,
             CityId = request.CityId,
             LogoUrl = string.IsNullOrWhiteSpace(request.LogoUrl) ? null : request.LogoUrl.Trim(),
+            CompanyDescription = string.IsNullOrWhiteSpace(request.CompanyDescription) ? null : request.CompanyDescription.Trim(),
+            WebsiteUrl = string.IsNullOrWhiteSpace(request.WebsiteUrl) ? null : request.WebsiteUrl.Trim(),
             AcceptedPrivacyPolicy = true,
             PrivacyPolicyAcceptedAtUtc = DateTime.UtcNow,
             IsActive = true,
@@ -396,7 +401,9 @@ public class AuthService : IAuthService
         var user = await _authRepository.GetUserByIdAsync(userId)
             ?? throw new UnauthorizedAccessException("Потребителят не е намерен.");
 
-        return MapUser(user);
+        var response = MapUser(user);
+        response.AvatarUrl = _blobImageService.ResolveAvatarUrl(user.LogoBlobName);
+        return response;
     }
 
     private async Task<AuthResponse> BuildAuthResponseAsync(User user, string? ipAddress, string? userAgent)

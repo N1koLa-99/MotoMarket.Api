@@ -8,8 +8,12 @@ public class ProfileDashboardResponse
 
     public string? FullName { get; set; }
     public string? CompanyName { get; set; }
+    public string? ContactPerson { get; set; }
+    public string? CompanyDescription { get; set; }
+    public string? WebsiteUrl { get; set; }
     public string Email { get; set; } = default!;
     public string Phone { get; set; } = default!;
+    public string? AvatarUrl { get; set; }
 
     public int PublishedListingsTotalCount { get; set; }
     public int ActiveListingsCount { get; set; }

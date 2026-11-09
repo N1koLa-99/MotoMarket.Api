@@ -3,7 +3,6 @@ using MotoMarket.Api.Models.Requests;
 using MotoMarket.Api.Models.Responses;
 using MotoMarket.Api.Repositories.Interfaces;
 using MotoMarket.Api.Services.Interfaces;
-using System.Reflection;
 
 namespace MotoMarket.Api.Services;
 
@@ -116,7 +115,7 @@ public class ListingPresentationService : IListingPresentationService
                     : "Частно лице",
                 DisplayName = BuildSellerDisplayName(seller),
                 Phone = seller.Phone,
-                LogoUrl = TryGetSellerLogoUrl(seller)
+                LogoUrl = ResolveSellerLogoUrl(seller)
             };
         }
 
@@ -156,28 +155,17 @@ public class ListingPresentationService : IListingPresentationService
         return string.IsNullOrWhiteSpace(fullName) ? "Частно лице" : fullName;
     }
 
-    private static string? TryGetSellerLogoUrl(User seller)
+    private string? ResolveSellerLogoUrl(User seller)
     {
-        var type = seller.GetType();
+        // Аватарът, качен през /api/profile/avatar, се пази в LogoBlobName → нужен е SAS URL.
+        if (!string.IsNullOrWhiteSpace(seller.LogoBlobName))
+            return _blobImageService.ResolveAvatarUrl(seller.LogoBlobName);
 
-        var logoUrl = ReadStringProperty(type, seller, "LogoUrl");
-        if (!string.IsNullOrWhiteSpace(logoUrl))
-            return logoUrl;
-
-        var companyLogoUrl = ReadStringProperty(type, seller, "CompanyLogoUrl");
-        if (!string.IsNullOrWhiteSpace(companyLogoUrl))
-            return companyLogoUrl;
+        // Fallback към стара колона LogoUrl (директен URL).
+        if (!string.IsNullOrWhiteSpace(seller.LogoUrl))
+            return seller.LogoUrl;
 
         return null;
-    }
-
-    private static string? ReadStringProperty(Type type, object instance, string propertyName)
-    {
-        var property = type.GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
-        if (property == null || property.PropertyType != typeof(string))
-            return null;
-
-        return property.GetValue(instance) as string;
     }
 
     private static void ValidatePublicSearchRequest(PublicListingSearchRequest request)

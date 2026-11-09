@@ -1,4 +1,5 @@
-﻿using MotoMarket.Api.Models.Entities;
+﻿using Microsoft.AspNetCore.Http;
+using MotoMarket.Api.Models.Entities;
 using MotoMarket.Api.Models.Responses;
 using MotoMarket.Api.Repositories.Interfaces;
 using MotoMarket.Api.Services.Interfaces;
@@ -9,11 +10,87 @@ public class ProfileService : IProfileService
 {
     private readonly IProfileRepository _profileRepository;
     private readonly IBlobImageService _blobImageService;
+    private readonly ILookupRepository _lookupRepository;
 
-    public ProfileService(IProfileRepository profileRepository, IBlobImageService blobImageService)
+    public ProfileService(IProfileRepository profileRepository, IBlobImageService blobImageService, ILookupRepository lookupRepository)
     {
         _profileRepository = profileRepository;
         _blobImageService = blobImageService;
+        _lookupRepository = lookupRepository;
+    }
+
+    public async Task<string> UploadAvatarAsync(long userId, IFormFile file)
+    {
+        var user = await GetActiveUser(userId);
+
+        var newBlobName = await _blobImageService.UploadAvatarAsync(userId, file);
+
+        if (!string.IsNullOrWhiteSpace(user.LogoBlobName))
+            await _blobImageService.DeleteAvatarBlobAsync(user.LogoBlobName);
+
+        await _profileRepository.UpdateAvatarAsync(userId, newBlobName);
+
+        return _blobImageService.GetReadUrl(newBlobName);
+    }
+
+    public async Task DeleteAvatarAsync(long userId)
+    {
+        var user = await GetActiveUser(userId);
+
+        if (!string.IsNullOrWhiteSpace(user.LogoBlobName))
+            await _blobImageService.DeleteAvatarBlobAsync(user.LogoBlobName);
+
+        await _profileRepository.UpdateAvatarAsync(userId, null);
+    }
+
+    public async Task<PublicUserProfileResponse> GetPublicProfileAsync(long userId)
+    {
+        var user = await _profileRepository.GetPublicUserByIdAsync(userId)
+            ?? throw new KeyNotFoundException("Потребителят не е намерен.");
+
+        var activeCount = await _profileRepository.CountPublicListingsByUserAsync(userId);
+
+        string? countryName = null;
+        string? regionName = null;
+        string? cityName = null;
+
+        if (user.CountryId > 0)
+            countryName = (await _lookupRepository.GetCountryByIdAsync(user.CountryId))?.NameBg;
+        if (user.RegionId.HasValue)
+            regionName = (await _lookupRepository.GetRegionByIdAsync(user.RegionId.Value))?.NameBg;
+        if (user.CityId.HasValue)
+            cityName = (await _lookupRepository.GetCityByIdAsync(user.CityId.Value))?.NameBg;
+
+        return new PublicUserProfileResponse
+        {
+            UserId = user.Id,
+            AccountType = user.AccountType,
+            DisplayName = user.AccountType == "PRIVATE"
+                ? $"{user.FirstName} {user.LastName}".Trim()
+                : user.CompanyName,
+            CompanyName = user.CompanyName,
+            ContactPerson = user.AccountType == "COMPANY" ? user.ContactPerson : null,
+            Phone = user.Phone,
+            AvatarUrl = _blobImageService.ResolveAvatarUrl(user.LogoBlobName),
+            CompanyDescription = user.AccountType == "COMPANY" ? user.CompanyDescription : null,
+            WebsiteUrl = user.AccountType == "COMPANY" ? user.WebsiteUrl : null,
+            CountryName = countryName,
+            RegionName = regionName,
+            CityName = cityName,
+            ActiveListingsCount = activeCount,
+            MemberSince = user.CreatedAt
+        };
+    }
+
+    public async Task<PagedResultResponse<ProfileListingCardResponse>> GetPublicListingsAsync(long userId, int page, int pageSize)
+    {
+        ValidatePaging(page, pageSize);
+
+        var totalCount = await _profileRepository.CountPublicListingsByUserAsync(userId);
+        var items = await _profileRepository.GetPublicListingsByUserAsync(userId, page, pageSize);
+        ResolveBlobUrls(items);
+
+        return BuildPagedResult(items, page, pageSize, totalCount);
     }
 
     public async Task<ProfileDashboardResponse> GetDashboardAsync(long userId)
@@ -37,8 +114,12 @@ public class ProfileService : IProfileService
                 ? $"{user.FirstName} {user.LastName}".Trim()
                 : null,
             CompanyName = user.CompanyName,
+            ContactPerson = user.ContactPerson,
+            CompanyDescription = user.CompanyDescription,
+            WebsiteUrl = user.WebsiteUrl,
             Email = user.Email,
             Phone = user.Phone,
+            AvatarUrl = _blobImageService.ResolveAvatarUrl(user.LogoBlobName),
 
             PublishedListingsTotalCount = user.PublishedListingsTotalCount,
             ActiveListingsCount = activeListingsCount,

@@ -154,6 +154,8 @@ INSERT INTO dbo.Users
     RegionId,
     CityId,
     LogoUrl,
+    CompanyDescription,
+    WebsiteUrl,
     AcceptedPrivacyPolicy,
     PrivacyPolicyAcceptedAtUtc,
     IsActive
@@ -172,6 +174,8 @@ VALUES
     @RegionId,
     @CityId,
     @LogoUrl,
+    @CompanyDescription,
+    @WebsiteUrl,
     @AcceptedPrivacyPolicy,
     @PrivacyPolicyAcceptedAtUtc,
     1
@@ -435,6 +439,9 @@ SET
     RegionId = NULL,
     CityId = NULL,
     LogoUrl = NULL,
+    LogoBlobName = NULL,
+    CompanyDescription = NULL,
+    WebsiteUrl = NULL,
     PublishedListingsTotalCount = 0,
     PrivateFreeUsedCount = 0,
     CompanyStarterFreeUsedCount = 0,

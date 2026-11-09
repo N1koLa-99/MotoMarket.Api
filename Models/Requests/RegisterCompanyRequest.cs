@@ -30,5 +30,11 @@ public class RegisterCompanyRequest
 
     [MaxLength(500)]
     public string? LogoUrl { get; set; }
+
+    public string? CompanyDescription { get; set; }
+
+    [MaxLength(500)]
+    public string? WebsiteUrl { get; set; }
+
     public bool AcceptedPrivacyPolicy { get; set; }
 }
